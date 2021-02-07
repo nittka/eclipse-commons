@@ -5,6 +5,8 @@ import java.text.MessageFormat;
 import javax.sound.midi.Sequencer;
 
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.events.KeyAdapter;
+import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.PaintEvent;
 import org.eclipse.swt.events.PaintListener;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -18,6 +20,7 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Slider;
+import org.eclipse.swt.widgets.Text;
 
 public class MidiPlaybackControl extends Composite {
 
@@ -30,6 +33,14 @@ public class MidiPlaybackControl extends Composite {
 	private final Sequencer sequencer;
 	private Button playPause;
 	private TempoEditor tempoControl;
+
+	//fields for showing/going to measure
+	private Text measure;
+	private boolean ignoreNextUpdateMeasure;
+	private int defaultBeatsPerMinute;
+	private int beatsPerMinute;
+	private int beatsPerMeasure;
+	private long lastValue;//negative value indicates no update
 
 	public MidiPlaybackControl(Composite parent, Sequencer sequencer) {
 		super(parent, SWT.NONE);
@@ -66,7 +77,7 @@ public class MidiPlaybackControl extends Composite {
 
 	private void createButtonRow() {
 		Composite rowParent = new Composite(this, SWT.NONE);
-		rowParent.setLayout(new GridLayout(5, false));
+		rowParent.setLayout(new GridLayout(6, false));
 		GridData rowLayoutData = new GridData();
 		rowLayoutData.horizontalSpan = 3;
 		rowParent.setLayoutData(rowLayoutData);
@@ -140,6 +151,66 @@ public class MidiPlaybackControl extends Composite {
 				togglePlayback();
 			}
 		});
+
+		GridData layoutData = new GridData();
+		layoutData.horizontalAlignment = SWT.FILL;
+		layoutData.minimumWidth=60;
+		layoutData.grabExcessHorizontalSpace = true;
+		measure = new Text(rowParent, SWT.NONE);
+		measure.setText("");
+		measure.setTextLimit(11);
+		measure.setToolTipText("Enter measure number and press return to go to approximate time"
+				+ "\n<measure>:<beats per measure (optional, default 4)>:<beats per minute (optional, default from midi)>"
+				+"\nFormat examples '5', '9:3', '2:4:116'"
+				+"\nIf the field is empty, the measure number will not be updated when playing");
+		measure.setLayoutData(layoutData);
+		measure.addKeyListener(new KeyAdapter() {
+
+			@Override
+			public void keyReleased(KeyEvent e) {
+				if (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR) {
+					int time = getTimeToSet();
+					if (time >= 0) {
+						ignoreNextUpdateMeasure = true;
+						lastValue = 0;
+						setValue(time);
+					} else {
+						lastValue = -1;
+					}
+				} else {
+					if (measure.getText().trim().isEmpty()) {
+						lastValue = -1;
+					} else {
+						lastValue = 0;
+					}
+				}
+			}
+		});
+	}
+
+	private int getTimeToSet() {
+		try {
+			String text = measure.getText();
+			if (!text.trim().isEmpty()) {
+				String[] split = text.split(":");
+				int bar = Integer.parseInt(split[0].trim());
+				beatsPerMeasure = 4;
+				if (split.length > 1) {
+					beatsPerMeasure = Integer.parseInt(split[1].trim());
+				}
+				beatsPerMinute = defaultBeatsPerMinute;
+				if (split.length > 2) {
+					beatsPerMinute = Integer.parseInt(split[2].trim());
+				}
+				float seconds = 60f / beatsPerMinute * beatsPerMeasure * (bar - 1);
+				int millis = (int) (seconds * 1000);
+				return millis * 1000;
+			}
+		} catch (Exception e) {
+			//ignore
+			//e.printStackTrace();
+		}
+		return -1;
 	}
 
 	private void focusPlayButton() {
@@ -188,7 +259,7 @@ public class MidiPlaybackControl extends Composite {
 		}
 	}
 
-	private void setValue(int value) {
+	void setValue(int value) {
 		setValue(value, true);
 	}
 
@@ -215,10 +286,15 @@ public class MidiPlaybackControl extends Composite {
 		slider.setIncrement(maximumValue / 100);
 		maxValueString=display(maximumValue);
 		setValue(getValue(), false);
+		defaultBeatsPerMinute = (int) sequencer.getTempoInBPM();
+		beatsPerMinute = defaultBeatsPerMinute;
+		beatsPerMeasure = 4;
+		lastValue = -1;
 	}
 
 	private void play() {
 		sequencer.start();
+		measure.setEditable(false);
 		playPauseImage("Pause");
 		Display.getDefault().timerExec(0, new Updater());
 	}
@@ -227,6 +303,7 @@ public class MidiPlaybackControl extends Composite {
 		if (sequencer.isOpen()) {
 			sequencer.stop();
 			playPauseImage("Play");
+			measure.setEditable(true);
 		}
 	}
 
@@ -258,8 +335,22 @@ public class MidiPlaybackControl extends Composite {
 
 	private String display(long microseconds) {
 		long seconds = microseconds / 1000000;
+		updateMeasure(microseconds);
 		final int secondsInMinute = 60;
 		return MessageFormat.format("{0}:{1,number,00}", seconds / secondsInMinute, seconds % secondsInMinute);
+	}
+
+	private void updateMeasure(long microSeconds) {
+		if(ignoreNextUpdateMeasure) {
+			ignoreNextUpdateMeasure = false;
+		}else if (lastValue >= 0 && microSeconds != getMaximumValue() && Math.abs(lastValue - microSeconds) > 10000) {
+			float seconds = ((float) microSeconds / 1000000);
+			lastValue = microSeconds;
+			int bar = (int) (seconds * beatsPerMinute / beatsPerMeasure / 60) + 1;
+			String[] split = measure.getText().split(":", 2);
+			String suffix = split.length > 1 ? ":" + split[1] : "";
+			measure.setText(bar + suffix);
+		}
 	}
 
 	// Tempo
