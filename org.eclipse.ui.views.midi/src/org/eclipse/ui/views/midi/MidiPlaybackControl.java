@@ -11,7 +11,6 @@ import org.eclipse.swt.events.PaintEvent;
 import org.eclipse.swt.events.PaintListener;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
-import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
@@ -34,13 +33,11 @@ public class MidiPlaybackControl extends Composite {
 	private Button playPause;
 	private TempoEditor tempoControl;
 
-	//fields for showing/going to measure
+	// fields for showing/going to measure
 	private Text measure;
+	private MidiMeasureAnalyzer analyzer;
 	private boolean ignoreNextUpdateMeasure;
-	private int defaultBeatsPerMinute;
-	private int beatsPerMinute;
-	private int beatsPerMeasure;
-	private long lastValue;//negative value indicates no update
+	private long lastValue;// negative value indicates no update
 
 	public MidiPlaybackControl(Composite parent, Sequencer sequencer) {
 		super(parent, SWT.NONE);
@@ -57,6 +54,7 @@ public class MidiPlaybackControl extends Composite {
 			}
 		});
 
+		this.analyzer = new MidiMeasureAnalyzer(sequencer);
 		rewind();
 	}
 
@@ -154,15 +152,15 @@ public class MidiPlaybackControl extends Composite {
 
 		GridData layoutData = new GridData();
 		layoutData.horizontalAlignment = SWT.FILL;
-		layoutData.minimumWidth=60;
+		layoutData.minimumWidth = 60;
 		layoutData.grabExcessHorizontalSpace = true;
 		measure = new Text(rowParent, SWT.NONE);
 		measure.setText("");
 		measure.setTextLimit(11);
 		measure.setToolTipText("Enter measure number and press return to go to approximate time"
-				+ "\n<measure>:<beats per measure (optional, default 4)>:<beats per minute (optional, default from midi)>"
-				+"\nFormat examples '5', '9:3', '2:4:116'"
-				+"\nIf the field is empty, the measure number will not be updated when playing");
+				+ "\n<measure>:<partial>" 
+				+ "\nFormat examples '5', '9:3/8', '2:1/4'"
+				+ "\nIf the field is empty, the measure number will not be updated when playing");
 		measure.setLayoutData(layoutData);
 		measure.addKeyListener(new KeyAdapter() {
 
@@ -194,21 +192,11 @@ public class MidiPlaybackControl extends Composite {
 			if (!text.trim().isEmpty()) {
 				String[] split = text.split(":");
 				int bar = Integer.parseInt(split[0].trim());
-				beatsPerMeasure = 4;
-				if (split.length > 1) {
-					beatsPerMeasure = Integer.parseInt(split[1].trim());
-				}
-				beatsPerMinute = defaultBeatsPerMinute;
-				if (split.length > 2) {
-					beatsPerMinute = Integer.parseInt(split[2].trim());
-				}
-				float seconds = 60f / beatsPerMinute * beatsPerMeasure * (bar - 1);
-				int millis = (int) (seconds * 1000);
-				return millis * 1000;
+				return analyzer.getTime(bar);
 			}
 		} catch (Exception e) {
-			//ignore
-			//e.printStackTrace();
+			// ignore
+			// e.printStackTrace();
 		}
 		return -1;
 	}
@@ -280,16 +268,18 @@ public class MidiPlaybackControl extends Composite {
 	}
 
 	public void sequencerContentChanged() {
-		this.maximumValue = (int)sequencer.getMicrosecondLength();
+		this.maximumValue = (int) sequencer.getMicrosecondLength();
 		slider.setMaximum(maximumValue + 1);
 		slider.setPageIncrement(maximumValue / 10);
 		slider.setIncrement(maximumValue / 100);
-		maxValueString=display(maximumValue);
+		maxValueString = display(maximumValue);
 		setValue(getValue(), false);
-		defaultBeatsPerMinute = (int) sequencer.getTempoInBPM();
-		beatsPerMinute = defaultBeatsPerMinute;
-		beatsPerMeasure = 4;
-		lastValue = -1;
+		if (analyzer.calculateMeasureTimes()) {
+			lastValue = measure.getText().isEmpty() ? -1 : 0;
+		} else {
+			measure.setText("");
+			lastValue = -1;
+		}
 	}
 
 	private void play() {
@@ -341,15 +331,19 @@ public class MidiPlaybackControl extends Composite {
 	}
 
 	private void updateMeasure(long microSeconds) {
-		if(ignoreNextUpdateMeasure) {
+		if (ignoreNextUpdateMeasure) {
 			ignoreNextUpdateMeasure = false;
-		}else if (lastValue >= 0 && microSeconds != getMaximumValue() && Math.abs(lastValue - microSeconds) > 10000) {
-			float seconds = ((float) microSeconds / 1000000);
+		} else if (lastValue >= 0 && microSeconds != getMaximumValue() && Math.abs(lastValue - microSeconds) > 10000) {
 			lastValue = microSeconds;
-			int bar = (int) (seconds * beatsPerMinute / beatsPerMeasure / 60) + 1;
-			String[] split = measure.getText().split(":", 2);
-			String suffix = split.length > 1 ? ":" + split[1] : "";
-			measure.setText(bar + suffix);
+			int bar = analyzer.getMeasure(microSeconds);
+			if (bar >= 0) {
+				String[] split = measure.getText().split(":", 2);
+				String suffix = split.length > 1 ? ":" + split[1] : "";
+				measure.setText(bar + suffix);
+			} else {
+				lastValue = -1;
+				measure.setText("");
+			}
 		}
 	}
 
