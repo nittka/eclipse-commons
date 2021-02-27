@@ -190,9 +190,7 @@ public class MidiPlaybackControl extends Composite {
 		try {
 			String text = measure.getText();
 			if (!text.trim().isEmpty()) {
-				String[] split = text.split(":");
-				int bar = Integer.parseInt(split[0].trim());
-				return analyzer.getTime(bar);
+				return analyzer.getTime(text);
 			}
 		} catch (Exception e) {
 			// ignore
@@ -274,7 +272,7 @@ public class MidiPlaybackControl extends Composite {
 		slider.setIncrement(maximumValue / 100);
 		maxValueString = display(maximumValue);
 		setValue(getValue(), false);
-		if (analyzer.calculateMeasureTimes()) {
+		if (analyzer.calculateMeasureTimes(measure.getText())) {
 			lastValue = measure.getText().isEmpty() ? -1 : 0;
 		} else {
 			measure.setText("");
@@ -335,7 +333,7 @@ public class MidiPlaybackControl extends Composite {
 			ignoreNextUpdateMeasure = false;
 		} else if (lastValue >= 0 && microSeconds != getMaximumValue() && Math.abs(lastValue - microSeconds) > 10000) {
 			lastValue = microSeconds;
-			int bar = analyzer.getMeasure(microSeconds);
+			int bar = analyzer.getMeasure(microSeconds, measure.getText());
 			if (bar >= 0) {
 				String[] split = measure.getText().split(":", 2);
 				String suffix = split.length > 1 ? ":" + split[1] : "";
