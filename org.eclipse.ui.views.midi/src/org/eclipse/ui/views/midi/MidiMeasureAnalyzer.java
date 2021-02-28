@@ -9,6 +9,8 @@ import javax.sound.midi.MidiEvent;
 import javax.sound.midi.Sequencer;
 import javax.sound.midi.Track;
 
+import org.eclipse.swt.widgets.Text;
+
 class MidiMeasureAnalyzer {
 
 	private Sequencer sequencer;
@@ -17,13 +19,17 @@ class MidiMeasureAnalyzer {
 	// the array)
 	private Integer[] measurePositions;
 	private String partial = null;
+	private Text partialTextField;
 
-	MidiMeasureAnalyzer(Sequencer sequencer) {
+	MidiMeasureAnalyzer(Sequencer sequencer, Text partialField) {
 		this.sequencer = sequencer;
+		this.partialTextField = partialField;
+		partialField.addModifyListener(e -> {
+			handlePartialChange();
+		});
 	}
 
-	public int getMeasure(long microsecondsPosition, String measureText) {
-		maybeHandlePartialChange(measureText);
+	public int getMeasure(long microsecondsPosition) {
 		if (measurePositions != null) {
 			for (int i = 0; i < measurePositions.length; i++) {
 				if (measurePositions[i] > microsecondsPosition) {
@@ -37,31 +43,34 @@ class MidiMeasureAnalyzer {
 	}
 
 	public int getTime(String measureText) {
-		String[] split = measureText.split(":");
-		int bar = parseInt(split[0]);
-		maybeHandlePartialChange(measureText);
-		if (measurePositions == null) {
-			return -1;
-		} else if (bar == 0 && partial != null) {
-			return 0;
+		try {
+			int bar = parseInt(measureText);
+			if (measurePositions == null) {
+				return -1;
+			} else if (bar <= 0) {
+				return 0;
+			}
+			int barIndex = bar - 1;
+			if (measurePositions.length <= barIndex) {
+				return (int) sequencer.getMicrosecondLength();
+			} else {
+				return measurePositions[barIndex];
+			}
+		} catch (Exception e) {
+			// ignore
 		}
-		int barIndex = bar - 1;
-		if (measurePositions.length <= barIndex) {
-			return (int) sequencer.getMicrosecondLength();
-		} else {
-			return measurePositions[barIndex];
-		}
+		return -1;
 	}
 
 	private int parseInt(String s) {
 		return Integer.parseInt(s.trim());
 	}
 
-	public boolean calculateMeasureTimes(String measureText) {
+	public boolean calculateMeasureTimes() {
 		long sequencerPosition = sequencer.getTickPosition();
 		try {
 			int ticksPerQuarter = sequencer.getSequence().getResolution();
-			int partialOffset = getPartialOffset(measureText, ticksPerQuarter);
+			int partialOffset = getPartialOffset(ticksPerQuarter);
 			long currentTick = partialOffset;
 			long tickLength = sequencer.getTickLength();
 			List<Integer> measureMicroSeconds = new ArrayList<>();
@@ -74,7 +83,6 @@ class MidiMeasureAnalyzer {
 			measurePositions = measureMicroSeconds.toArray(new Integer[0]);
 			return true;
 		} catch (Exception e) {
-			e.printStackTrace();
 			measurePositions = null;
 		} finally {
 			// rewind
@@ -83,36 +91,26 @@ class MidiMeasureAnalyzer {
 		return false;
 	}
 
-	private int getPartialOffset(String measureText, int ticksPerQuarter) {
+	private int getPartialOffset(int ticksPerQuarter) {
 		try {
-			String partialText = getPartialString(measureText);
-			if (partialText != null) {
-				String[] split = partialText.split("/");
+			if (partial.length() > 0) {
+				String[] split = partial.split("/");
 				int number = parseInt(split[0]);
 				int base = parseInt(split[1]);
-				partial = partialText;
 				return ticksPerQuarter * 4 * number / base;
 			}
 		} catch (Exception e) {
 			// ignore illegal format
 		}
-		partial = null;
 		return 0;
 	}
 
-	private void maybeHandlePartialChange(String measureText) {
-		String partialString = getPartialString(measureText);
+	private void handlePartialChange() {
+		String partialString = partialTextField.getText();
 		if (!Objects.equals(partialString, partial)) {
-			calculateMeasureTimes(measureText);
+			partial = partialString;
+			calculateMeasureTimes();
 		}
-	}
-
-	private String getPartialString(String measureText) {
-		int colonIndex = measureText.indexOf(':');
-		if (colonIndex >= 0) {
-			return measureText.substring(colonIndex + 1);
-		}
-		return null;
 	}
 
 	private long getNextMeasureTick(long currentTick, List<MeasureInfo> infos) {

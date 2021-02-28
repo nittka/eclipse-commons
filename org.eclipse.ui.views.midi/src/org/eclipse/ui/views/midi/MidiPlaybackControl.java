@@ -35,6 +35,7 @@ public class MidiPlaybackControl extends Composite {
 
 	// fields for showing/going to measure
 	private Text measure;
+	private Text partial;
 	private MidiMeasureAnalyzer analyzer;
 	private boolean ignoreNextUpdateMeasure;
 	private long lastValue;// negative value indicates no update
@@ -53,8 +54,6 @@ public class MidiPlaybackControl extends Composite {
 				drawMarker(e);
 			}
 		});
-
-		this.analyzer = new MidiMeasureAnalyzer(sequencer);
 		rewind();
 	}
 
@@ -75,7 +74,7 @@ public class MidiPlaybackControl extends Composite {
 
 	private void createButtonRow() {
 		Composite rowParent = new Composite(this, SWT.NONE);
-		rowParent.setLayout(new GridLayout(6, false));
+		rowParent.setLayout(new GridLayout(7, false));
 		GridData rowLayoutData = new GridData();
 		rowLayoutData.horizontalSpan = 3;
 		rowParent.setLayoutData(rowLayoutData);
@@ -149,54 +148,52 @@ public class MidiPlaybackControl extends Composite {
 				togglePlayback();
 			}
 		});
+		addMeasureControls(rowParent);
+	}
 
-		GridData layoutData = new GridData();
-		layoutData.horizontalAlignment = SWT.FILL;
-		layoutData.minimumWidth = 60;
-		layoutData.grabExcessHorizontalSpace = true;
+	private void addMeasureControls(Composite rowParent) {
 		measure = new Text(rowParent, SWT.NONE);
 		measure.setText("");
-		measure.setTextLimit(11);
-		measure.setToolTipText("Enter measure number and press return to go to approximate time"
-				+ "\n<measure>:<partial>" 
-				+ "\nFormat examples '5', '9:3/8', '2:1/4'"
-				+ "\nIf the field is empty, the measure number will not be updated when playing");
-		measure.setLayoutData(layoutData);
+		measure.setTextLimit(4);
+		measure.setToolTipText("Enter measure number and press return to go to approximate time!"
+				+ "\nIf the measure fields are empty, the measure number will not be updated when playing.");
 		measure.addKeyListener(new KeyAdapter() {
 
 			@Override
 			public void keyReleased(KeyEvent e) {
 				if (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR) {
-					int time = getTimeToSet();
+					int time = analyzer.getTime(measure.getText());
 					if (time >= 0) {
 						ignoreNextUpdateMeasure = true;
 						lastValue = 0;
 						setValue(time);
 					} else {
-						lastValue = -1;
+						measure.setText("");
 					}
-				} else {
-					if (measure.getText().trim().isEmpty()) {
-						lastValue = -1;
-					} else {
-						lastValue = 0;
-					}
-				}
+				} 
+				updateUpdateMeasureActivation();
 			}
 		});
+
+		partial = new Text(rowParent, SWT.NONE);
+		partial.setText("");
+		partial.setTextLimit(6);
+		partial.setToolTipText("Enter information about partial measures!\nFormat examples '1/4', '3/8'");
+		partial.addKeyListener(new KeyAdapter() {
+			@Override
+			public void keyReleased(KeyEvent e) {
+				updateUpdateMeasureActivation();
+			}
+		});
+		this.analyzer = new MidiMeasureAnalyzer(sequencer, partial);
 	}
 
-	private int getTimeToSet() {
-		try {
-			String text = measure.getText();
-			if (!text.trim().isEmpty()) {
-				return analyzer.getTime(text);
-			}
-		} catch (Exception e) {
-			// ignore
-			// e.printStackTrace();
+	private void updateUpdateMeasureActivation() {
+		if (measure.getText().trim().isEmpty() && partial.getText().trim().isEmpty()) {
+			lastValue = -1;
+		} else {
+			lastValue = 0;
 		}
-		return -1;
 	}
 
 	private void focusPlayButton() {
@@ -245,7 +242,7 @@ public class MidiPlaybackControl extends Composite {
 		}
 	}
 
-	void setValue(int value) {
+	private void setValue(int value) {
 		setValue(value, true);
 	}
 
@@ -272,17 +269,16 @@ public class MidiPlaybackControl extends Composite {
 		slider.setIncrement(maximumValue / 100);
 		maxValueString = display(maximumValue);
 		setValue(getValue(), false);
-		if (analyzer.calculateMeasureTimes(measure.getText())) {
-			lastValue = measure.getText().isEmpty() ? -1 : 0;
-		} else {
+		if (!analyzer.calculateMeasureTimes()) {
 			measure.setText("");
-			lastValue = -1;
+			partial.setText("");
 		}
+		updateUpdateMeasureActivation();
 	}
 
 	private void play() {
 		sequencer.start();
-		measure.setEditable(false);
+		setMeasureControlsEditable(false);
 		playPauseImage("Pause");
 		Display.getDefault().timerExec(0, new Updater());
 	}
@@ -291,7 +287,16 @@ public class MidiPlaybackControl extends Composite {
 		if (sequencer.isOpen()) {
 			sequencer.stop();
 			playPauseImage("Play");
-			measure.setEditable(true);
+			setMeasureControlsEditable(true);
+		}
+	}
+
+	private void setMeasureControlsEditable(boolean editable) {
+		if (measure != null && !measure.isDisposed()) {
+			measure.setEditable(editable);
+		}
+		if (partial != null && !partial.isDisposed()) {
+			partial.setVisible(editable);
 		}
 	}
 
@@ -333,11 +338,9 @@ public class MidiPlaybackControl extends Composite {
 			ignoreNextUpdateMeasure = false;
 		} else if (lastValue >= 0 && microSeconds != getMaximumValue() && Math.abs(lastValue - microSeconds) > 10000) {
 			lastValue = microSeconds;
-			int bar = analyzer.getMeasure(microSeconds, measure.getText());
+			int bar = analyzer.getMeasure(microSeconds);
 			if (bar >= 0) {
-				String[] split = measure.getText().split(":", 2);
-				String suffix = split.length > 1 ? ":" + split[1] : "";
-				measure.setText(bar + suffix);
+				measure.setText(""+bar);
 			} else {
 				lastValue = -1;
 				measure.setText("");
