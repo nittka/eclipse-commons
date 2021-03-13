@@ -34,8 +34,10 @@ public class MidiPlaybackControl extends Composite {
 	private TempoEditor tempoControl;
 
 	// fields for showing/going to measure
+	//TODO maybe integrate fields in MidiMeasureAnalyzer - rename MidiMeasureControl
 	private Text measure;
 	private Text partial;
+	private Label partialLabel;
 	private MidiMeasureAnalyzer analyzer;
 	private boolean ignoreNextUpdateMeasure;
 	private long lastValue;// negative value indicates no update
@@ -74,7 +76,7 @@ public class MidiPlaybackControl extends Composite {
 
 	private void createButtonRow() {
 		Composite rowParent = new Composite(this, SWT.NONE);
-		rowParent.setLayout(new GridLayout(7, false));
+		rowParent.setLayout(new GridLayout(6, false));
 		GridData rowLayoutData = new GridData();
 		rowLayoutData.horizontalSpan = 3;
 		rowParent.setLayoutData(rowLayoutData);
@@ -152,11 +154,36 @@ public class MidiPlaybackControl extends Composite {
 	}
 
 	private void addMeasureControls(Composite rowParent) {
-		measure = new Text(rowParent, SWT.NONE);
+		Composite mParent = new Composite(rowParent, SWT.NONE);
+		GridLayout mLayout=new GridLayout(2, false);
+		mLayout.verticalSpacing=2;
+		mLayout.marginBottom=0;
+		mLayout.marginTop=0;
+		mParent.setLayout(mLayout);
+
+		GridData measureData=new GridData();
+		measureData.widthHint=35;
+		measureData.grabExcessHorizontalSpace=false;
+
+		partialLabel= new Label(mParent, SWT.NONE);
+		partialLabel.setText("Partial:");
+		partial = new Text(mParent, SWT.NONE);
+		partial.setText("");
+		partial.setTextLimit(6);
+		partial.setToolTipText("If the score starts with a partial measure,\nplease provide that information!\nFormat examples '1/4', '3/8'");
+		partial.addKeyListener(new KeyAdapter() {
+			@Override
+			public void keyReleased(KeyEvent e) {
+				updateUpdateMeasureActivation();
+			}
+		});
+		partial.setLayoutData(measureData);
+		
+		new Label(mParent, SWT.NONE).setText("Measure:");
+		measure = new Text(mParent, SWT.NONE);
 		measure.setText("");
 		measure.setTextLimit(4);
-		measure.setToolTipText("Enter measure number and press return to go to approximate time!"
-				+ "\nIf the measure fields are empty, the measure number will not be updated when playing.");
+		measure.setToolTipText("Enter measure number and press return to go to approximate time!");
 		measure.addKeyListener(new KeyAdapter() {
 
 			@Override
@@ -174,23 +201,14 @@ public class MidiPlaybackControl extends Composite {
 				updateUpdateMeasureActivation();
 			}
 		});
-
-		partial = new Text(rowParent, SWT.NONE);
-		partial.setText("");
-		partial.setTextLimit(6);
-		partial.setToolTipText("Enter information about partial measures!\nFormat examples '1/4', '3/8'");
-		partial.addKeyListener(new KeyAdapter() {
-			@Override
-			public void keyReleased(KeyEvent e) {
-				updateUpdateMeasureActivation();
-			}
-		});
+		measure.setLayoutData(measureData);
 		this.analyzer = new MidiMeasureAnalyzer(sequencer, partial);
 	}
 
+	//TODO show if and only if measure analyzer has data - i.e. always show measure if possible
 	private void updateUpdateMeasureActivation() {
 		if (measure.getText().trim().isEmpty() && partial.getText().trim().isEmpty()) {
-			lastValue = -1;
+			lastValue = 0;
 		} else {
 			lastValue = 0;
 		}
@@ -297,6 +315,9 @@ public class MidiPlaybackControl extends Composite {
 		}
 		if (partial != null && !partial.isDisposed()) {
 			partial.setVisible(editable);
+		}
+		if(partialLabel!=null && !partialLabel.isDisposed()) {
+			partialLabel.setVisible(editable);
 		}
 	}
 
