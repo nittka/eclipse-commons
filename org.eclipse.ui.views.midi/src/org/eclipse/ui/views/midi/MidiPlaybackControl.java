@@ -157,8 +157,8 @@ public class MidiPlaybackControl extends Composite {
 		Composite mParent = new Composite(rowParent, SWT.NONE);
 		GridLayout mLayout=new GridLayout(2, false);
 		mLayout.verticalSpacing=2;
-		mLayout.marginBottom=0;
-		mLayout.marginTop=0;
+		mLayout.marginBottom=-5;
+		mLayout.marginTop=-5;
 		mParent.setLayout(mLayout);
 
 		GridData measureData=new GridData();
